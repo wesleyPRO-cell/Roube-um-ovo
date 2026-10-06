@@ -1,0 +1,455 @@
+--[[
+    ============================================================
+    🎮 PAINEL DE CONTROLE — UI MODERNA EM LUAU
+    ============================================================
+    Local recomendado: StarterPlayer > StarterPlayerScripts
+    Tipo: LocalScript
+    
+    Recursos:
+      • Janela central moderna com cantos arredondados
+      • Slider de Speed (0–100) com indicador de valor
+      • Botões + / − para ajuste fino
+      • Toggle de Imortalidade contra Pets
+      • Animações suaves de abertura/fechamento
+      • Responsivo para PC e Mobile
+      • Tema escuro elegante
+    ============================================================
+]]
+
+--=========================================================
+-- SERVIÇOS
+--=========================================================
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
+
+--=========================================================
+-- TEMA (fácil de editar)
+--=========================================================
+local THEME = {
+    -- Cores
+    Background     = Color3.fromRGB(20, 22, 30),
+    Panel          = Color3.fromRGB(28, 31, 42),
+    Card           = Color3.fromRGB(36, 40, 54),
+    CardHover      = Color3.fromRGB(46, 51, 68),
+    Accent         = Color3.fromRGB(99, 102, 241),   -- Indigo moderno
+    AccentHover    = Color3.fromRGB(129, 132, 255),
+    Success        = Color3.fromRGB(52, 211, 153),
+    Danger         = Color3.fromRGB(239, 68, 68),
+    Text           = Color3.fromRGB(243, 244, 246),
+    SubText        = Color3.fromRGB(148, 155, 175),
+    Stroke         = Color3.fromRGB(58, 63, 82),
+    SliderTrack    = Color3.fromRGB(45, 49, 65),
+}
+
+--=========================================================
+-- CONFIGURAÇÕES
+--=========================================================
+local CONFIG = {
+    PanelSize    = UDim2.new(0, 380, 0, 340),  -- ajustado abaixo
+    MinSpeed     = 0,
+    MaxSpeed     = 100,
+    DefaultSpeed = 16,
+    -- Imortalidade
+    ImmortalityMaxHealth = 100,
+}
+
+-- Corrige (UDim2)
+CONFIG.PanelSize = UDim2.new(0, 380, 0, 340)
+
+--=========================================================
+-- ESTADO
+--=========================================================
+local State = {
+    Speed       = CONFIG.DefaultSpeed,
+    Immortality = false,
+}
+
+--=========================================================
+-- UTILITÁRIOS
+--=========================================================
+local function create(class, props, children)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do inst[k] = v end
+    for _, c in ipairs(children or {}) do c.Parent = inst end
+    return inst
+end
+
+local function corner(inst, radius)
+    return create("UICorner", { CornerRadius = UDim.new(0, radius), Parent = inst })
+end
+
+local function stroke(inst, color, thickness)
+    return create("UIStroke", {
+        Color = color or THEME.Stroke,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = inst,
+    })
+end
+
+local function tween(obj, time, props, style, dir)
+    local t = TweenService:Create(
+        obj,
+        TweenInfo.new(time, style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out),
+        props
+    )
+    t:Play()
+    return t
+end
+
+local function clamp(n, min, max)
+    return math.max(min, math.min(max, n))
+end
+
+--=========================================================
+-- SCREEN GUI
+--=========================================================
+local ScreenGui = create("ScreenGui", {
+    Name = "ModernPanelUI",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    IgnoreGuiInset = true,
+    Parent = PlayerGui,
+})
+
+--=========================================================
+-- BOTÃO FLUTUANTE (abre/fecha o painel)
+--=========================================================
+local ToggleBtn = create("TextButton", {
+    Name = "ToggleBtn",
+    Size = UDim2.new(0, 52, 0, 52),
+    Position = UDim2.new(0, 20, 0.5, -26),
+    BackgroundColor3 = THEME.Accent,
+    Text = "⚙",
+    TextColor3 = THEME.Text,
+    TextSize = 24,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false,
+    Parent = ScreenGui,
+})
+corner(ToggleBtn, 26)
+stroke(ToggleBtn, THEME.AccentHover, 2)
+
+-- Hover do botão
+ToggleBtn.MouseEnter:Connect(function()
+    tween(ToggleBtn, 0.2, { BackgroundColor3 = THEME.AccentHover })
+end)
+ToggleBtn.MouseLeave:Connect(function()
+    tween(ToggleBtn, 0.2, { BackgroundColor3 = THEME.Accent })
+end)
+
+--=========================================================
+-- PAINEL PRINCIPAL
+--=========================================================
+local Panel = create("Frame", {
+    Name = "Panel",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.new(0.5, 0, 0.5, 0),
+    Size = UDim2.new(0, 0, 0, 0), -- começa fechado
+    BackgroundColor3 = THEME.Panel,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    Visible = false,
+    Parent = ScreenGui,
+})
+corner(Panel, 16)
+stroke(Panel, THEME.Stroke, 1.5)
+
+--=========================================================
+-- CABEÇALHO
+--=========================================================
+local Header = create("Frame", {
+    Name = "Header",
+    Size = UDim2.new(1, 0, 0, 56),
+    BackgroundColor3 = THEME.Background,
+    BorderSizePixel = 0,
+    Parent = Panel,
+})
+corner(Header, 16)
+-- Retifica cantos inferiores
+create("Frame", {
+    Size = UDim2.new(1, 0, 0, 16),
+    Position = UDim2.new(0, 0, 1, -16),
+    BackgroundColor3 = THEME.Background,
+    BorderSizePixel = 0,
+    Parent = Header,
+})
+
+-- Ícone do título
+create("TextLabel", {
+    Size = UDim2.new(0, 32, 0, 32),
+    Position = UDim2.new(0, 16, 0.5, -16),
+    BackgroundColor3 = THEME.Accent,
+    Text = "⚡",
+    TextColor3 = THEME.Text,
+    TextSize = 18,
+    Font = Enum.Font.GothamBold,
+    Parent = Header,
+}):FindFirstChildOfClass("UICorner") or nil
+local titleIcon = Header:GetChildren()[#Header:GetChildren()]
+if titleIcon and titleIcon:IsA("TextLabel") then corner(titleIcon, 8) end
+
+-- Título
+create("TextLabel", {
+    Size = UDim2.new(1, -120, 1, 0),
+    Position = UDim2.new(0, 58, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "PAINEL DE CONTROLE",
+    TextColor3 = THEME.Text,
+    TextSize = 15,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = Header,
+})
+
+-- Botão fechar
+local CloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 32, 0, 32),
+    Position = UDim2.new(1, -44, 0.5, -16),
+    BackgroundColor3 = THEME.Danger,
+    Text = "✕",
+    TextColor3 = THEME.Text,
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false,
+    Parent = Header,
+})
+corner(CloseBtn, 8)
+
+--=========================================================
+-- CONTAINER DE CONTEÚDO
+--=========================================================
+local Content = create("Frame", {
+    Name = "Content",
+    Size = UDim2.new(1, -32, 1, -76),
+    Position = UDim2.new(0, 16, 0, 64),
+    BackgroundTransparency = 1,
+    Parent = Panel,
+})
+create("UIListLayout", {
+    Padding = UDim.new(0, 12),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Parent = Content,
+})
+
+--=========================================================
+-- CARD: SPEED (slider + botões + valor)
+--=========================================================
+local SpeedCard = create("Frame", {
+    Name = "SpeedCard",
+    Size = UDim2.new(1, 0, 0, 150),
+    BackgroundColor3 = THEME.Card,
+    BorderSizePixel = 0,
+    LayoutOrder = 1,
+    Parent = Content,
+})
+corner(SpeedCard, 12)
+stroke(SpeedCard, THEME.Stroke, 1)
+
+-- Título do card
+create("TextLabel", {
+    Size = UDim2.new(1, -24, 0, 20),
+    Position = UDim2.new(0, 16, 0, 12),
+    BackgroundTransparency = 1,
+    Text = "⚡  SPEED",
+    TextColor3 = THEME.Text,
+    TextSize = 13,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = SpeedCard,
+})
+
+-- Valor atual (grande, à direita)
+local SpeedValue = create("TextLabel", {
+    Name = "SpeedValue",
+    Size = UDim2.new(0, 60, 0, 24),
+    Position = UDim2.new(1, -76, 0, 10),
+    BackgroundTransparency = 1,
+    Text = tostring(State.Speed),
+    TextColor3 = THEME.Accent,
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Right,
+    Parent = SpeedCard,
+})
+
+-- Botão "−"
+local MinusBtn = create("TextButton", {
+    Size = UDim2.new(0, 34, 0, 34),
+    Position = UDim2.new(0, 16, 0, 44),
+    BackgroundColor3 = THEME.Background,
+    Text = "−",
+    TextColor3 = THEME.Text,
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false,
+    Parent = SpeedCard,
+})
+corner(MinusBtn, 8)
+
+-- Botão "+"
+local PlusBtn = create("TextButton", {
+    Size = UDim2.new(0, 34, 0, 34),
+    Position = UDim2.new(1, -50, 0, 44),
+    BackgroundColor3 = THEME.Background,
+    Text = "+",
+    TextColor3 = THEME.Text,
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false,
+    Parent = SpeedCard,
+})
+corner(PlusBtn, 8)
+
+--=========================================================
+-- SLIDER (barra deslizante)
+--=========================================================
+local SliderTrack = create("Frame", {
+    Name = "SliderTrack",
+    Size = UDim2.new(1, -116, 0, 8),
+    Position = UDim2.new(0, 58, 0, 57),
+    BackgroundColor3 = THEME.SliderTrack,
+    BorderSizePixel = 0,
+    Parent = SpeedCard,
+})
+corner(SliderTrack, 4)
+
+local SliderFill = create("Frame", {
+    Name = "Fill",
+    Size = UDim2.new(State.Speed / CONFIG.MaxSpeed, 0, 1, 0),
+    BackgroundColor3 = THEME.Accent,
+    BorderSizePixel = 0,
+    Parent = SliderTrack,
+})
+corner(SliderFill, 4)
+
+local SliderKnob = create("Frame", {
+    Name = "Knob",
+    Size = UDim2.new(0, 18, 0, 18),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.new(State.Speed / CONFIG.MaxSpeed, 0, 0.5, 0),
+    BackgroundColor3 = THEME.Text,
+    BorderSizePixel = 0,
+    ZIndex = 2,
+    Parent = SliderTrack,
+})
+corner(SliderKnob, 9)
+stroke(SliderKnob, THEME.Accent, 2)
+
+--=========================================================
+-- CARD: IMORTALIDADE
+--=========================================================
+local GodCard = create("Frame", {
+    Name = "GodCard",
+    Size = UDim2.new(1, 0, 0, 68),
+    BackgroundColor3 = THEME.Card,
+    BorderSizePixel = 0,
+    LayoutOrder = 2,
+    Parent = Content,
+})
+corner(GodCard, 12)
+stroke(GodCard, THEME.Stroke, 1)
+
+-- Ícone
+local GodIcon = create("TextLabel", {
+    Size = UDim2.new(0, 40, 0, 40),
+    Position = UDim2.new(0, 14, 0.5, -20),
+    BackgroundColor3 = THEME.Background,
+    Text = "🛡",
+    TextColor3 = THEME.Accent,
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+    Parent = GodCard,
+})
+corner(GodIcon, 10)
+
+-- Título
+create("TextLabel", {
+    Size = UDim2.new(1, -140, 0, 18),
+    Position = UDim2.new(0, 66, 0, 14),
+    BackgroundTransparency = 1,
+    Text = "IMORTALIDADE",
+    TextColor3 = THEME.Text,
+    TextSize = 13,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = GodCard,
+})
+
+-- Subtítulo
+create("TextLabel", {
+    Size = UDim2.new(1, -140, 0, 14),
+    Position = UDim2.new(0, 66, 0, 34),
+    BackgroundTransparency = 1,
+    Text = "Imune a dano de Pets",
+    TextColor3 = THEME.SubText,
+    TextSize = 11,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = GodCard,
+})
+
+-- Toggle (switch)
+local SwitchTrack = create("Frame", {
+    Name = "Switch",
+    Size = UDim2.new(0, 48, 0, 24),
+    Position = UDim2.new(1, -62, 0.5, -12),
+    BackgroundColor3 = THEME.Danger,
+    BorderSizePixel = 0,
+    Parent = GodCard,
+})
+corner(SwitchTrack, 12)
+
+local SwitchKnob = create("Frame", {
+    Name = "Knob",
+    Size = UDim2.new(0, 18, 0, 18),
+    Position = UDim2.new(0, 3, 0.5, -9),
+    BackgroundColor3 = THEME.Text,
+    BorderSizePixel = 0,
+    Parent = SwitchTrack,
+})
+corner(SwitchKnob, 9)
+
+-- Botão invisível sobre o switch (área clicável)
+local SwitchHitbox = create("TextButton", {
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "",
+    Parent = SwitchTrack,
+})
+
+--=========================================================
+-- LÓGICA: SPEED
+--=========================================================
+local function applySpeed(value)
+    State.Speed = clamp(value, CONFIG.MinSpeed, CONFIG.MaxSpeed)
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = State.Speed
+        end
+    end
+    -- Atualiza UI
+    SpeedValue.Text = tostring(State.Speed)
+    local pct = State.Speed / CONFIG.MaxSpeed
+    tween(SliderFill, 0.15, { Size = UDim2.new(pct, 0, 1, 0) })
+    tween(SliderKnob, 0.15, { Position = UDim2.new(pct, 0, 0.5, 0) })
+end
+
+-- Botões + e −
+MinusBtn.MouseButton1Click:Connect(function()
+    applySpeed(State.Speed - 5)
+end)
+PlusBtn.MouseButton1Click:Connect(function()
+    applySpeed(State.Speed + 5)
+end)
+
+-- Hover dos botões + / −
+for _, btn in ipairs({ MinusBtn, PlusBtn }) do
+    btn.MouseEnter:Connect(function()
+        tween(btn, 0.15, { BackgroundColor
